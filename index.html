@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover, user-scalable=no" />
     
-    <!-- Настройки для запуска как полноценного приложения (PWA) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Склад">
@@ -19,7 +18,7 @@
 
     <style>
         body {
-            background-color: black;
+            background-color: #000000;
             color: white;
             padding-bottom: env(safe-area-inset-bottom);
             -webkit-tap-highlight-color: transparent;
@@ -36,8 +35,8 @@
             border: 2px solid rgba(59, 130, 246, 0.2);
             border-top: 2px solid #3b82f6;
             border-radius: 50%;
-            width: 20px;
-            height: 20px;
+            width: 18px;
+            height: 18px;
             animation: spin 0.8s linear infinite;
         }
         @keyframes spin {
@@ -45,14 +44,20 @@
             100% { transform: rotate(360deg); }
         }
 
-        header {
-            padding-top: max(1rem, env(safe-area-inset-top));
+        .safe-top { padding-top: max(1rem, env(safe-area-inset-top)); }
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        .fade-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        /* Фиксация заголовков категорий */
+        .category-header {
+            position: sticky;
+            top: 140px; 
+            background: rgba(0,0,0,0.95);
+            backdrop-filter: blur(12px);
+            z-index: 20;
         }
     </style>
 </head>
@@ -62,8 +67,21 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
 
-        // URL вашего опубликованного скрипта
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_SgtppYOi6jStNJgmZaxdtEL5PflQ4yd44rMbuEyscUJ7cDNT7XTCl4QGk38sLbgz/exec"; 
+
+        const parseQuantity = (val) => {
+            if (val === null || val === undefined) return 0;
+            const sVal = String(val).trim();
+            if (sVal.startsWith('#') || sVal === '') return 0;
+            if (typeof val === 'number') return isNaN(val) ? 0 : val;
+            try {
+                let s = sVal.replace(/[\s\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000]/g, '');
+                s = s.replace(',', '.');
+                s = s.replace(/[^0-9.-]/g, '');
+                const num = parseFloat(s);
+                return isNaN(num) ? 0 : num;
+            } catch (e) { return 0; }
+        };
 
         function App() {
             const [activeTab, setActiveTab] = useState('paints');
@@ -76,48 +94,34 @@
             const fetchData = useCallback(async () => {
                 setLoading(true);
                 setError(null);
-
                 try {
-                    // Используем fetch с параметром cache: "no-store", чтобы избежать старых данных
                     const response = await fetch(GOOGLE_SCRIPT_URL, {
                         method: 'GET',
                         cache: 'no-store',
                         mode: 'cors',
                         redirect: 'follow'
                     });
-
-                    if (!response.ok) {
-                        throw new Error(`Ошибка сети: ${response.status}`);
-                    }
-                    
+                    if (!response.ok) throw new Error(`Ошибка сети: ${response.status}`);
                     const result = await response.json();
-                    
                     if (result && (result.paints || result.materials)) {
                         setData({
                             paints: Array.isArray(result.paints) ? result.paints : [],
                             materials: Array.isArray(result.materials) ? result.materials : []
                         });
                         setLastUpdated(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
-                    } else {
-                        throw new Error("Скрипт вернул пустой или неверный формат данных");
                     }
                 } catch (err) {
-                    console.error("Fetch Error:", err);
-                    // Выводим более подробную ошибку для диагностики
-                    setError(`Ошибка синхронизации. Проверьте: 1. Доступ скрипта (Anyone). 2. Новое развертывание (Deploy).`);
+                    setError(`Ошибка обновления. Проверьте соединение.`);
                 } finally {
                     setLoading(false);
                 }
             }, []);
 
-            useEffect(() => {
-                fetchData();
-            }, [fetchData]);
+            useEffect(() => { fetchData(); }, [fetchData]);
 
             const currentList = useMemo(() => {
                 const list = activeTab === 'paints' ? data.paints : data.materials;
                 if (!searchQuery) return list;
-                
                 const q = searchQuery.toLowerCase();
                 return list.filter(item => 
                     (item.name || "").toLowerCase().includes(q) ||
@@ -127,7 +131,7 @@
 
             const groupedData = useMemo(() => {
                 return currentList.reduce((acc, item) => {
-                    const cat = (item.category || "БЕЗ КАТЕГОРИИ").trim().toUpperCase();
+                    const cat = (item.category || "ПРОЧЕЕ").trim().toUpperCase();
                     if (!acc[cat]) acc[cat] = [];
                     acc[cat].push(item);
                     return acc;
@@ -135,79 +139,73 @@
             }, [currentList]);
 
             return (
-                <div className="min-h-screen flex flex-col bg-black text-white">
-                    {/* Header */}
-                    <header className="flex-none bg-slate-900/95 backdrop-blur-xl border-b border-white/5 px-4 pb-4 sticky top-0 z-50 shadow-lg">
+                <div className="min-h-screen flex flex-col bg-black">
+                    {/* Шапка */}
+                    <header className="flex-none bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pb-4 sticky top-0 z-50 safe-top">
                         <div className="flex justify-between items-center mb-4">
                             <div>
                                 <h1 className="text-xl font-black italic uppercase tracking-tighter flex items-center gap-2">
-                                    СКЛАД <span className={`w-2.5 h-2.5 rounded-full ${loading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+                                    СКЛАД <span className={`w-2 h-2 rounded-full ${loading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}></span>
                                 </h1>
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
-                                    {loading ? "Загрузка..." : `Обновлено: ${lastUpdated}`}
+                                    {loading ? "Синхронизация..." : `Обновлено: ${lastUpdated}`}
                                 </p>
                             </div>
                             <button 
-                                onClick={fetchData}
+                                onClick={fetchData} 
                                 disabled={loading}
-                                className="w-11 h-11 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 active:scale-90 transition-transform disabled:opacity-50"
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 active:scale-95 transition-transform"
                             >
-                                {loading ? <div className="loader"></div> : <span className="text-xl text-blue-400">⟳</span>}
+                                {loading ? <div className="loader"></div> : <span className="text-lg text-blue-400">⟳</span>}
                             </button>
                         </div>
 
                         <div className="relative">
                             <input
                                 type="text"
-                                className="w-full bg-slate-800/50 border border-white/10 rounded-2xl py-3.5 px-4 text-sm outline-none focus:border-blue-500/50 transition-all placeholder:text-slate-500"
-                                placeholder="Поиск по названию или коду..."
+                                className="w-full bg-slate-800/50 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-blue-500/50 transition-all placeholder:text-slate-500"
+                                placeholder="Название или артикул..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
                     </header>
 
-                    {/* Main */}
-                    <main className="flex-grow px-4 pt-4 pb-32 overflow-y-auto">
+                    {/* Контент */}
+                    <main className="flex-grow px-4 pt-4 pb-32">
                         {error && (
-                            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl mb-6 text-center">
-                                <p className="text-red-400 text-[11px] font-bold mb-3 uppercase leading-relaxed">{error}</p>
-                                <button onClick={fetchData} className="bg-red-600 text-white text-[10px] font-black px-6 py-2 rounded-xl uppercase">Повторить запрос</button>
-                            </div>
-                        )}
-
-                        {!loading && Object.keys(groupedData).length === 0 && !error && (
-                            <div className="text-center py-20 opacity-30">
-                                <p className="text-xs uppercase tracking-widest font-bold">Данные не найдены</p>
+                            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl mb-6 text-center">
+                                <p className="text-red-400 text-[10px] font-bold uppercase">{error}</p>
                             </div>
                         )}
 
                         {Object.entries(groupedData).map(([category, items]) => (
-                            <div key={category} className="mb-8 fade-in">
-                                <div className="flex items-center gap-3 mb-4 sticky top-[148px] bg-black py-2 z-10 border-b border-white/5">
-                                    <h2 className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em]">{category}</h2>
-                                    <div className="h-px flex-grow bg-white/5"></div>
-                                    <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">{items.length}</span>
+                            <div key={category} className="mb-6 fade-in">
+                                <div className="category-header flex items-center gap-2 py-2 mb-2 border-b border-white/5">
+                                    <h2 className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{category}</h2>
+                                    <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">{items.length}</span>
                                 </div>
 
                                 <div className="grid gap-2">
                                     {items.map(item => {
-                                        const qty = Number(item.quantity) || 0;
+                                        const qty = parseQuantity(item.quantity);
                                         return (
-                                            <div key={item.id} className={`flex items-center justify-between p-4 rounded-2xl border ${qty <= 0 ? 'bg-white/[0.01] border-white/5 opacity-40' : 'bg-slate-900/40 border-white/10 shadow-sm'}`}>
-                                                <div className="flex-1 min-w-0 mr-4">
-                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase mb-1.5 inline-block">
-                                                        {item.code === "----" ? "БЕЗ КОДА" : item.code}
-                                                    </span>
-                                                    <h3 className="text-[13px] font-bold text-slate-100 uppercase line-clamp-2 leading-snug">
+                                            <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border ${qty <= 0 ? 'bg-white/[0.02] border-white/5 opacity-50' : 'bg-slate-900/40 border-white/10 shadow-sm'}`}>
+                                                <div className="flex-1 min-w-0 mr-3">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase">
+                                                            {(!item.code || item.code === "----") ? "НЕТ КОДА" : item.code}
+                                                        </span>
+                                                    </div>
+                                                    <h3 className="text-[13px] font-medium text-slate-200 uppercase truncate">
                                                         {item.name}
                                                     </h3>
                                                 </div>
                                                 <div className="text-right shrink-0">
-                                                    <div className={`text-xl font-black tracking-tighter tabular-nums ${qty <= 0 ? 'text-slate-600' : 'text-emerald-400'}`}>
+                                                    <div className={`text-lg font-black tabular-nums ${qty <= 0 ? 'text-slate-600' : 'text-emerald-400'}`}>
                                                         {qty.toLocaleString('ru-RU')}
                                                     </div>
-                                                    <div className="text-[9px] font-bold text-slate-500 uppercase mt-0.5">{item.unit || "кг"}</div>
+                                                    <div className="text-[9px] font-bold text-slate-500 uppercase">{item.unit || "кг"}</div>
                                                 </div>
                                             </div>
                                         );
@@ -217,22 +215,22 @@
                         ))}
                     </main>
 
-                    {/* Footer Nav */}
-                    <footer className="fixed bottom-0 left-0 right-0 p-4 pb-8 bg-gradient-to-t from-black via-black/80 to-transparent">
-                        <div className="max-w-md mx-auto bg-slate-900/90 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-1.5 flex gap-1.5 shadow-2xl">
+                    {/* Навигация */}
+                    <footer className="fixed bottom-0 left-0 right-0 p-4 pb-6 bg-gradient-to-t from-black via-black to-transparent z-[100]">
+                        <div className="max-w-md mx-auto bg-slate-900/95 border border-white/10 rounded-2xl p-1.5 flex gap-1.5 shadow-2xl backdrop-blur-md">
                             <button 
                                 onClick={() => setActiveTab('paints')}
-                                className={`flex-1 flex flex-col items-center py-3.5 rounded-[2rem] transition-all ${activeTab === 'paints' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}
+                                className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all ${activeTab === 'paints' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:bg-white/5'}`}
                             >
-                                <span className="text-lg mb-0.5">💧</span>
-                                <span className="text-[9px] font-black uppercase tracking-widest">Краски</span>
+                                <span className="text-xl mb-0.5">🎨</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Краски</span>
                             </button>
                             <button 
                                 onClick={() => setActiveTab('materials')}
-                                className={`flex-1 flex flex-col items-center py-3.5 rounded-[2rem] transition-all ${activeTab === 'materials' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500'}`}
+                                className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all ${activeTab === 'materials' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20' : 'text-slate-500 hover:bg-white/5'}`}
                             >
-                                <span className="text-lg mb-0.5">📦</span>
-                                <span className="text-[9px] font-black uppercase tracking-widest">Сырье</span>
+                                <span className="text-xl mb-0.5">📦</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Сырье</span>
                             </button>
                         </div>
                     </footer>
