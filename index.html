@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover, user-scalable=no" />
     
+    <!-- Настройки PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Склад">
@@ -18,47 +19,33 @@
 
     <style>
         body {
-            background-color: #000000;
+            background-color: #020617; /* Slate 950 */
             color: white;
+            padding-top: env(safe-area-inset-top);
             padding-bottom: env(safe-area-inset-bottom);
             -webkit-tap-highlight-color: transparent;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, system-ui, sans-serif;
             overflow-x: hidden;
+            /* Отключаем выделение текста для ощущения приложения */
             user-select: none;
         }
         
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        /* Скрытие скроллбара */
+        ::-webkit-scrollbar { display: none; }
         
         .loader {
             border: 2px solid rgba(59, 130, 246, 0.2);
             border-top: 2px solid #3b82f6;
             border-radius: 50%;
-            width: 18px;
-            height: 18px;
+            width: 20px; height: 20px;
             animation: spin 0.8s linear infinite;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .safe-top { padding-top: max(1rem, env(safe-area-inset-top)); }
-        .fade-in { animation: fadeIn 0.2s ease-out; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Фиксация заголовков категорий */
-        .category-header {
-            position: sticky;
-            top: 140px; 
-            background: rgba(0,0,0,0.95);
-            backdrop-filter: blur(12px);
-            z-index: 20;
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .animate-up { animation: slideUp 0.3s ease-out forwards; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        
+        .header-shadow { box-shadow: 0 4px 20px -5px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
@@ -67,170 +54,242 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
 
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwrx7ANgB1rDt0lxCbpZFHOH6Nvp8dVLO_5UDXrTklghOTDl4eYoHxvCG32JrrRkpCv/exec"; 
-
-        const parseQuantity = (val) => {
-            if (val === null || val === undefined) return 0;
-            const sVal = String(val).trim();
-            if (sVal.startsWith('#') || sVal === '') return 0;
-            if (typeof val === 'number') return isNaN(val) ? 0 : val;
-            try {
-                let s = sVal.replace(/[\s\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000]/g, '');
-                s = s.replace(',', '.');
-                s = s.replace(/[^0-9.-]/g, '');
-                const num = parseFloat(s);
-                return isNaN(num) ? 0 : num;
-            } catch (e) { return 0; }
-        };
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwUlEDgoa9CFCWDv1KdppdKwkQ45yNg6zg22BMaYjkEE83YX_Mjdlo7_J2x6Gm9HQz_/exec"; 
 
         function App() {
             const [activeTab, setActiveTab] = useState('paints');
             const [searchQuery, setSearchQuery] = useState('');
             const [loading, setLoading] = useState(false);
-            const [lastUpdated, setLastUpdated] = useState("--:--");
-            const [error, setError] = useState(null);
             const [data, setData] = useState({ paints: [], materials: [] });
+            const [lastUpdated, setLastUpdated] = useState("--:--");
+            const [selectedItem, setSelectedItem] = useState(null);
 
             const fetchData = useCallback(async () => {
                 setLoading(true);
-                setError(null);
                 try {
-                    const response = await fetch(GOOGLE_SCRIPT_URL, {
-                        method: 'GET',
-                        cache: 'no-store',
-                        mode: 'cors',
-                        redirect: 'follow'
-                    });
-                    if (!response.ok) throw new Error(`Ошибка сети: ${response.status}`);
+                    const response = await fetch(GOOGLE_SCRIPT_URL);
                     const result = await response.json();
-                    if (result && (result.paints || result.materials)) {
-                        setData({
-                            paints: Array.isArray(result.paints) ? result.paints : [],
-                            materials: Array.isArray(result.materials) ? result.materials : []
-                        });
+                    if (result) {
+                        setData(result);
                         setLastUpdated(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
                     }
-                } catch (err) {
-                    setError(`Ошибка обновления. Проверьте соединение.`);
-                } finally {
-                    setLoading(false);
+                } catch (e) { 
+                    console.error("Fetch error", e); 
+                } finally { 
+                    setLoading(false); 
                 }
             }, []);
 
             useEffect(() => { fetchData(); }, [fetchData]);
 
-            const currentList = useMemo(() => {
-                const list = activeTab === 'paints' ? data.paints : data.materials;
-                if (!searchQuery) return list;
-                const q = searchQuery.toLowerCase();
-                return list.filter(item => 
-                    (item.name || "").toLowerCase().includes(q) ||
-                    (item.code || "").toLowerCase().includes(q)
-                );
-            }, [data, activeTab, searchQuery]);
+            // Функция для перевода дат (на случай если скрипт вернет на англ)
+            const translateDate = (str) => {
+                if (!str) return "";
+                const dict = {
+                    'Jan': 'янв.', 'Feb': 'февр.', 'Mar': 'мар.', 'Apr': 'апр.', 
+                    'May': 'мая', 'Jun': 'июня', 'Jul': 'июля', 'Aug': 'авг.', 
+                    'Sep': 'сент.', 'Oct': 'окт.', 'Nov': 'нояб.', 'Dec': 'дек.'
+                };
+                let res = str;
+                Object.keys(dict).forEach(key => { 
+                    res = res.replace(key, dict[key]); 
+                });
+                return res;
+            };
 
-            const groupedData = useMemo(() => {
-                return currentList.reduce((acc, item) => {
-                    const cat = (item.category || "ПРОЧЕЕ").trim().toUpperCase();
+            const filteredAndGrouped = useMemo(() => {
+                const list = activeTab === 'paints' ? (data.paints || []) : (data.materials || []);
+                const q = searchQuery.toLowerCase();
+                
+                const filtered = list.filter(i => 
+                    (i.name || "").toLowerCase().includes(q) || 
+                    (i.code || "").toLowerCase().includes(q)
+                );
+
+                const codeCounts = {};
+                list.forEach(i => { if(i.code && i.code !== "----") codeCounts[i.code] = (codeCounts[i.code] || 0) + 1; });
+
+                const grouped = filtered.reduce((acc, i) => {
+                    const cat = i.category || "ПРОЧЕЕ";
                     if (!acc[cat]) acc[cat] = [];
-                    acc[cat].push(item);
+                    acc[cat].push(i);
                     return acc;
                 }, {});
-            }, [currentList]);
+
+                return { grouped, codeCounts };
+            }, [data, activeTab, searchQuery]);
 
             return (
-                <div className="min-h-screen flex flex-col bg-black">
-                    {/* Шапка */}
-                    <header className="flex-none bg-slate-900/95 backdrop-blur-xl border-b border-white/10 px-4 pb-4 sticky top-0 z-50 safe-top">
-                        <div className="flex justify-between items-center mb-4">
+                <div className="min-h-screen flex flex-col">
+                    {/* ШАПКА */}
+                    <header className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur-xl border-b border-white/5 p-4 pb-4 header-shadow">
+                        <div className="flex justify-between items-center mb-4 mt-2">
                             <div>
-                                <h1 className="text-xl font-black italic uppercase tracking-tighter flex items-center gap-2">
-                                    СКЛАД <span className={`w-2 h-2 rounded-full ${loading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+                                <h1 className="text-2xl font-black italic tracking-tighter text-white">
+                                    СКЛАД <span className={`inline-block w-2.5 h-2.5 rounded-full ml-1 ${loading ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`}></span>
                                 </h1>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
-                                    {loading ? "Синхронизация..." : `Обновлено: ${lastUpdated}`}
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] leading-none mt-1.5 opacity-80">
+                                    ОБНОВЛЕНО: {lastUpdated}
                                 </p>
                             </div>
                             <button 
                                 onClick={fetchData} 
                                 disabled={loading}
-                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 active:scale-95 transition-transform"
+                                className="w-11 h-11 flex items-center justify-center bg-white/5 border border-white/10 rounded-2xl active:scale-90 transition-all active:bg-white/10"
                             >
-                                {loading ? <div className="loader"></div> : <span className="text-lg text-blue-400">⟳</span>}
+                                {loading ? <div className="loader"></div> : <span className="text-xl text-blue-400">⟳</span>}
                             </button>
                         </div>
-
                         <div className="relative">
-                            <input
-                                type="text"
-                                className="w-full bg-slate-800/50 border border-white/10 rounded-xl py-3 px-4 text-sm outline-none focus:border-blue-500/50 transition-all placeholder:text-slate-500"
-                                placeholder="Название или артикул..."
+                            <input 
+                                type="text" 
+                                className="w-full bg-slate-900 border border-white/10 rounded-2xl py-3.5 px-5 text-base outline-none focus:border-blue-500 transition-all placeholder:text-slate-600 text-white shadow-inner" 
+                                placeholder="Поиск по названию или артикулу..." 
                                 value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onChange={e => setSearchQuery(e.target.value)}
                             />
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-slate-400"
+                                >✕</button>
+                            )}
                         </div>
                     </header>
 
-                    {/* Контент */}
-                    <main className="flex-grow px-4 pt-4 pb-32">
-                        {error && (
-                            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl mb-6 text-center">
-                                <p className="text-red-400 text-[10px] font-bold uppercase">{error}</p>
-                            </div>
-                        )}
-
-                        {Object.entries(groupedData).map(([category, items]) => (
-                            <div key={category} className="mb-6 fade-in">
-                                <div className="category-header flex items-center gap-2 py-2 mb-2 border-b border-white/5">
-                                    <h2 className="text-slate-400 text-[10px] font-black uppercase tracking-widest">{category}</h2>
-                                    <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">{items.length}</span>
+                    {/* СПИСОК ТОВАРОВ */}
+                    <main className="p-4 pb-40">
+                        {Object.keys(filteredAndGrouped.grouped).length > 0 ? Object.keys(filteredAndGrouped.grouped).map(cat => (
+                            <div key={cat} className="mb-8">
+                                {/* Заголовок категории - Сделан крупнее и заметнее */}
+                                <div className="sticky top-[160px] z-30 bg-slate-950/95 backdrop-blur-md py-3 -mx-4 px-4 border-b border-white/5 mb-3 shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-1 h-6 bg-blue-500 rounded-full"></div>
+                                        <h2 className="text-sm font-black uppercase tracking-widest text-slate-300">{cat}</h2>
+                                        <span className="text-[10px] font-bold text-slate-500 bg-white/5 px-2 py-0.5 rounded-md ml-auto">
+                                            {filteredAndGrouped.grouped[cat].length}
+                                        </span>
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-2">
-                                    {items.map(item => {
-                                        const qty = parseQuantity(item.quantity);
+                                <div className="grid gap-3">
+                                    {filteredAndGrouped.grouped[cat].map(item => {
+                                        const isLow = item.quantity <= 0;
+                                        const isDup = filteredAndGrouped.codeCounts[item.code] > 1;
                                         return (
-                                            <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border ${qty <= 0 ? 'bg-white/[0.02] border-white/5 opacity-50' : 'bg-slate-900/40 border-white/10 shadow-sm'}`}>
-                                                <div className="flex-1 min-w-0 mr-3">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase">
-                                                            {(!item.code || item.code === "----") ? "НЕТ КОДА" : item.code}
-                                                        </span>
-                                                    </div>
-                                                    <h3 className="text-[13px] font-medium text-slate-200 uppercase truncate">
+                                            <div 
+                                                key={item.id} 
+                                                onClick={() => setSelectedItem(item)}
+                                                className={`p-5 rounded-3xl border flex justify-between items-center active:scale-[0.98] transition-all cursor-pointer shadow-lg relative overflow-hidden ${isLow ? 'bg-slate-900/20 border-white/5 opacity-50' : 'bg-slate-900/40 border-white/10'}`}
+                                            >
+                                                {/* Индикатор дубликата */}
+                                                {isDup && <div className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-bl-xl"></div>}
+                                                
+                                                <div className="flex-1 min-w-0 pr-4">
+                                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border mb-2 inline-block tracking-wider ${isDup ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-slate-800 border-white/10 text-slate-500'}`}>
+                                                        {item.code} {isDup && "!"}
+                                                    </span>
+                                                    <div className="text-sm font-bold uppercase truncate text-slate-100 leading-tight">
                                                         {item.name}
-                                                    </h3>
+                                                    </div>
                                                 </div>
                                                 <div className="text-right shrink-0">
-                                                    <div className={`text-lg font-black tabular-nums ${qty <= 0 ? 'text-slate-600' : 'text-emerald-400'}`}>
-                                                        {qty.toLocaleString('ru-RU')}
+                                                    <div className={`text-2xl font-black leading-none italic ${isLow ? 'text-slate-600' : 'text-emerald-400'}`}>
+                                                        {Number(item.quantity || 0).toLocaleString('ru-RU')}
                                                     </div>
-                                                    <div className="text-[9px] font-bold text-slate-500 uppercase">{item.unit || "кг"}</div>
+                                                    <div className="text-[10px] text-slate-500 font-black uppercase mt-1 tracking-widest">{item.unit}</div>
                                                 </div>
                                             </div>
                                         );
                                     })}
                                 </div>
                             </div>
-                        ))}
+                        )) : (
+                            <div className="text-center py-24 opacity-30">
+                                <div className="text-4xl mb-4">🔍</div>
+                                <div className="text-[11px] font-black uppercase tracking-[0.3em]">Ничего не найдено</div>
+                            </div>
+                        )}
                     </main>
 
-                    {/* Навигация */}
-                    <footer className="fixed bottom-0 left-0 right-0 p-4 pb-6 bg-gradient-to-t from-black via-black to-transparent z-[100]">
-                        <div className="max-w-md mx-auto bg-slate-900/95 border border-white/10 rounded-2xl p-1.5 flex gap-1.5 shadow-2xl backdrop-blur-md">
+                    {/* МОДАЛКА ИСТОРИИ */}
+                    {selectedItem && (
+                        <div className="fixed inset-0 z-[100] flex items-end justify-center px-0 sm:px-4">
+                            <div className="absolute inset-0 bg-black/95 backdrop-blur-md" onClick={() => setSelectedItem(null)}></div>
+                            <div className="w-full max-w-xl bg-[#0f172a] border-t border-white/20 rounded-t-[2.5rem] relative flex flex-col max-h-[90vh] animate-up shadow-2xl overflow-hidden pb-[env(safe-area-inset-bottom)]">
+                                <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto my-5 shrink-0"></div>
+                                <div className="px-6 pb-8 overflow-y-auto">
+                                    <div className="mb-8">
+                                        <div className="text-[10px] font-black text-blue-400 bg-blue-500/10 px-3 py-1 rounded-full w-fit mb-3 uppercase tracking-widest border border-blue-500/20">
+                                            {selectedItem.category}
+                                        </div>
+                                        <h2 className="text-2xl font-black uppercase leading-[1.1] text-white italic">{selectedItem.name}</h2>
+                                        <p className="text-slate-500 text-xs font-bold mt-2 uppercase tracking-widest opacity-60">АРТИКУЛ: {selectedItem.code}</p>
+                                    </div>
+
+                                    <div className="bg-slate-800/50 border border-white/10 p-6 rounded-[2rem] flex justify-between items-center mb-8 shadow-inner">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Остаток</span>
+                                        <div className="text-4xl font-black text-emerald-400 italic tracking-tighter">
+                                            {Number(selectedItem.quantity || 0).toLocaleString('ru-RU')} 
+                                            <span className="text-sm font-bold text-slate-600 uppercase ml-2 not-italic">{selectedItem.unit}</span>
+                                        </div>
+                                    </div>
+
+                                    <h3 className="text-[10px] font-black uppercase text-blue-500 mb-4 tracking-[0.2em] border-b border-blue-500/20 pb-2 flex justify-between">
+                                        <span>ИСТОРИЯ ДВИЖЕНИЙ</span>
+                                    </h3>
+                                    
+                                    <div className="space-y-2 mb-4">
+                                        {selectedItem.history && selectedItem.history.length > 0 ? selectedItem.history.map((h, idx) => {
+                                            const isPlus = h.type.includes('Приход') || h.type.includes('Возврат');
+                                            return (
+                                                <div key={idx} className="flex justify-between items-center p-4 bg-white/[0.02] rounded-2xl border border-white/5">
+                                                    <div>
+                                                        <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">
+                                                            {translateDate(h.date)}
+                                                        </div>
+                                                        <div className="text-[11px] font-bold text-white uppercase italic">
+                                                            {h.type}
+                                                        </div>
+                                                    </div>
+                                                    <div className={`text-lg font-black italic tracking-tight ${isPlus ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                        {isPlus ? '+' : '−'}{Math.abs(h.value).toLocaleString('ru-RU')}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }) : (
+                                            <div className="text-center py-10 opacity-20 text-[10px] font-black uppercase tracking-widest italic">Нет записей</div>
+                                        )}
+                                    </div>
+
+                                    <button 
+                                        onClick={() => setSelectedItem(null)} 
+                                        className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-blue-900/40 active:scale-95 transition-all mt-4"
+                                    >ЗАКРЫТЬ</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* НИЖНЯЯ НАВИГАЦИЯ */}
+                    <footer className="fixed bottom-0 inset-x-0 p-4 pb-8 z-[100]">
+                        {/* Фон с сильным размытием и непрозрачностью, чтобы скрыть скролл */}
+                        <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl border-t border-white/5"></div>
+                        
+                        <div className="relative max-w-md mx-auto bg-slate-900 border border-white/10 rounded-[2.2rem] p-1.5 flex shadow-2xl">
                             <button 
-                                onClick={() => setActiveTab('paints')}
-                                className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all ${activeTab === 'paints' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:bg-white/5'}`}
+                                onClick={() => setActiveTab('paints')} 
+                                className={`flex-1 py-4 rounded-[1.8rem] flex flex-col items-center gap-1.5 transition-all ${activeTab === 'paints' ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/40 scale-100' : 'text-slate-500 opacity-60'}`}
                             >
-                                <span className="text-xl mb-0.5">🎨</span>
-                                <span className="text-[10px] font-black uppercase tracking-widest">Краски</span>
+                                <span className="text-2xl">🎨</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest">КРАСКИ</span>
                             </button>
                             <button 
-                                onClick={() => setActiveTab('materials')}
-                                className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all ${activeTab === 'materials' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20' : 'text-slate-500 hover:bg-white/5'}`}
+                                onClick={() => setActiveTab('materials')} 
+                                className={`flex-1 py-4 rounded-[1.8rem] flex flex-col items-center gap-1.5 transition-all ${activeTab === 'materials' ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-600/40 scale-100' : 'text-slate-500 opacity-60'}`}
                             >
-                                <span className="text-xl mb-0.5">📦</span>
-                                <span className="text-[10px] font-black uppercase tracking-widest">Сырье</span>
+                                <span className="text-2xl">📦</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest">СЫРЬЕ</span>
                             </button>
                         </div>
                     </footer>
